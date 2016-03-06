@@ -1,0 +1,26 @@
+{
+  "mysql": {
+    "host": "localhost",
+    "port": 3306,
+    "username": "root",
+    "password": "root"
+  },
+  "elasticsearch": {
+    "host": "localhost",
+    "port": 9300
+  },
+  "tables": ["test.user", "test.post"],
+  "tableInfo": [
+    {
+      "tableName": "test.user",
+      "aliasName": "test-index.user-index",
+      "columns": ["id", "nickname", "location"],
+      "columnInfo": [
+        {
+          "columnName": "id",
+          "aliasName": "_id"
+        }
+      ]
+    }
+  ]
+}

@@ -21,7 +21,7 @@ fun main(args: Array<String>) {
     MySQLConfig.HOST = "localhost"
     MySQLConfig.PORT = 3306
     MySQLConfig.USERNAME = "root"
-    MySQLConfig.PASSWORD = "4gmyMYSQL"
+    MySQLConfig.PASSWORD = "root"
 
     Thread(Runnable {
         var event: LogEvent
