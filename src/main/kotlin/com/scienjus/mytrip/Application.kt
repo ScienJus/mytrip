@@ -9,6 +9,7 @@ import com.scienjus.mytrip.event.DeleteEvent
 import com.scienjus.mytrip.event.InsertEvent
 import com.scienjus.mytrip.event.LogEvent
 import com.scienjus.mytrip.event.UpdateEvent
+import org.elasticsearch.action.bulk.BulkRequestBuilder
 import org.elasticsearch.client.transport.TransportClient
 import org.elasticsearch.common.transport.InetSocketTransportAddress
 import java.io.Serializable
@@ -27,14 +28,20 @@ fun main(args: Array<String>) {
     Thread(Runnable {
         val client = TransportClient()
                 .addTransportAddress(InetSocketTransportAddress(Config.elasticsearch.host, Config.elasticsearch.port))
-        var event: LogEvent
         while (true) {
-            event = EVENT_QUEUE.take()
-            println(event)
-            when (event) {
-                is InsertEvent  -> indexData(client, event)
-                is UpdateEvent  -> updateData(client, event)
-                is DeleteEvent  -> deleteData(client, event)
+            val bulk = client.prepareBulk();
+            var event = EVENT_QUEUE.poll()
+            while (event != null) {
+                println(EVENT_QUEUE.size)
+                when (event) {
+                    is InsertEvent -> indexData(bulk, client, event)
+                    is UpdateEvent -> updateData(bulk, client, event)
+                    is DeleteEvent -> deleteData(bulk, client, event)
+                }
+                event = EVENT_QUEUE.poll()
+            }
+            if (bulk.numberOfActions() > 0) {
+                bulk.execute()
             }
         }
     }).start()
@@ -65,29 +72,25 @@ fun initConfig() {
     JSON.parseObject(configFile.reader().readText(), Config::class.java)
 }
 
-fun deleteData(client: TransportClient, event: DeleteEvent) {
+fun deleteData(bulk: BulkRequestBuilder, client: TransportClient, event: DeleteEvent) {
     val tableInfo = event.tableInfo
     if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
         return
     }
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
-    client.prepareDelete(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
-            .execute()
-            .actionGet();
+    bulk.add(client.prepareDelete(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString()))
 }
 
-fun indexData(client: TransportClient, event: InsertEvent) {
+fun indexData(bulk: BulkRequestBuilder, client: TransportClient, event: InsertEvent) {
     val tableInfo = event.tableInfo
     if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
         return
     }
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
-    client.prepareIndex(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
-            .setSource(indexData.data)
-            .execute()
-            .actionGet();
+    bulk.add(client.prepareIndex(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
+            .setSource(indexData.data))
 }
 
 fun configIndexData(tableInfo: TableInfo, data: Map<String, Any?>): IndexData {
@@ -97,44 +100,42 @@ fun configIndexData(tableInfo: TableInfo, data: Map<String, Any?>): IndexData {
     val indexName = config?.aliasName?.split(".")?.get(0) ?: tableInfo.databaseName
     val typeName = config?.aliasName?.split(".")?.get(1) ?: tableInfo.tableName
     var indexData: MutableMap<String, Any?> = mutableMapOf()
-    indexData.putAll(data)
     if (config != null) {
-        val mutableMap: MutableMap<String, Any?> = mutableMapOf()
+        //去掉配置文件中不需要的字段
         if (config.columns.isNotEmpty()) {
-            mutableMap.putAll(data.filterKeys {
+            indexData.putAll(data.filterKeys {
                 config.columns.contains(it)
             })
         }
+        //根据配置文件中的别名改名
         config.columnInfo.forEach {
-            if (mutableMap.containsKey(it.columnName)) {
-                val value = mutableMap.remove(it.columnName)
-                mutableMap.put(it.aliasName, value)
+            if (indexData.containsKey(it.columnName)) {
+                val value = indexData.remove(it.columnName)
+                indexData.put(it.aliasName, value)
             }
         }
-        indexData = mutableMap
+    } else {
+        indexData.putAll(data)
     }
     val map = indexData.mapValues {
         when (it.value) {
+            //Date会报错，所以需要转成Long
             is Date -> (it.value as Date).time
             else    -> it.value
         }
     }
-    map.forEach {
-        println("value: ${it.value}, type: ${it.value?.javaClass}")
-    }
     return IndexData(indexName, typeName, map)
 }
 
-fun updateData(client: TransportClient, event: UpdateEvent) {
+fun updateData(bulk: BulkRequestBuilder, client: TransportClient, event: UpdateEvent) {
     val tableInfo = event.tableInfo
     if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
         return
     }
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
-    client.prepareUpdate(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
-            .setDoc(indexData.data)
-            .get();
+    bulk.add(client.prepareUpdate(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
+            .setDoc(indexData.data))
 }
 
 fun createDeleteEvent(eventData: DeleteRowsEventData) {
