@@ -1,9 +1,9 @@
 package com.scienjus.mytrip.event
 
-import java.io.Serializable
+import com.scienjus.mytrip.TableInfo
 
 /**
  * @author ScienJus
  * @date 16/3/5.
  */
-data class InsertEvent(val tableId: Long, val data: Map<String, Any?>) : LogEvent
+data class InsertEvent(val tableInfo: TableInfo, val data: Map<String, Any?>) : LogEvent

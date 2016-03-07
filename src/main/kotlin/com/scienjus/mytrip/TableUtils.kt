@@ -1,10 +1,10 @@
 package com.scienjus.mytrip
 
+import com.scienjus.mytrip.config.Config
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
 import java.util.*
-import com.scienjus.mytrip.config.*;
 
 /**
  * @author ScienJus
@@ -19,10 +19,10 @@ fun getTableInfo(tableId: Long): TableInfo {
 }
 
 fun createTableInfo(tableId: Long, databaseName: String, tableName: String) {
-    val url = "jdbc:mysql://${MySQLConfig.HOST}:${MySQLConfig.PORT}/$databaseName"
+    val url = "jdbc:mysql://${Config.mysql.host}:${Config.mysql.port}/$databaseName"
     try {
-        DriverManager.getConnection(url, MySQLConfig.USERNAME, MySQLConfig.PASSWORD).use { conn ->
-            conn.getMetaData().getColumns(null, null, tableName, null).use({ resultSet ->
+        DriverManager.getConnection(url, Config.mysql.username, Config.mysql.password).use { conn ->
+            conn.metaData.getColumns(null, null, tableName, null).use({ resultSet ->
 
                 val primaryKey = getPrimaryKey(conn, tableName)
 
