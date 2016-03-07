@@ -13,16 +13,15 @@ import org.elasticsearch.client.transport.TransportClient
 import org.elasticsearch.common.transport.InetSocketTransportAddress
 import java.io.Serializable
 import java.util.*
-import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * @author ScienJus
  * @date 16/3/5.
  */
-private val EVENT_QUEUE = LinkedBlockingDeque<LogEvent>(100)
+private val EVENT_QUEUE = LinkedBlockingQueue<LogEvent>()
 
 fun main(args: Array<String>) {
-
     initConfig();
 
     Thread(Runnable {
@@ -30,7 +29,7 @@ fun main(args: Array<String>) {
                 .addTransportAddress(InetSocketTransportAddress(Config.elasticsearch.host, Config.elasticsearch.port))
         var event: LogEvent
         while (true) {
-            event = EVENT_QUEUE.take();
+            event = EVENT_QUEUE.take()
             println(event)
             when (event) {
                 is InsertEvent  -> indexData(client, event)
@@ -44,7 +43,7 @@ fun main(args: Array<String>) {
     client.registerEventListener { event ->
         val eventData = event.getData<EventData>()
         when (eventData) {
-            is TableMapEventData    -> createTableInfo(eventData.tableId, eventData.database, eventData.table)
+            is TableMapEventData -> createTableInfo(eventData.tableId, eventData.database, eventData.table)
             is WriteRowsEventData   -> createInsertEvent(eventData)
             is UpdateRowsEventData  -> createUpdateEvent(eventData)
             is DeleteRowsEventData  -> createDeleteEvent(eventData)
@@ -95,27 +94,35 @@ fun configIndexData(tableInfo: TableInfo, data: Map<String, Any?>): IndexData {
     val config = Config.tableInfo.firstOrNull {
         it.tableName == tableInfo.databaseName + "." + tableInfo.tableName
     }
-    val indexName = config?.aliasName?.split("\\.")?.get(0) ?: tableInfo.databaseName
-    val typeName = config?.aliasName?.split("\\.")?.get(1) ?: tableInfo.tableName
-    var indexData = data
+    val indexName = config?.aliasName?.split(".")?.get(0) ?: tableInfo.databaseName
+    val typeName = config?.aliasName?.split(".")?.get(1) ?: tableInfo.tableName
+    var indexData: MutableMap<String, Any?> = mutableMapOf()
+    indexData.putAll(data)
     if (config != null) {
         val mutableMap: MutableMap<String, Any?> = mutableMapOf()
         if (config.columns.isNotEmpty()) {
             mutableMap.putAll(data.filterKeys {
                 config.columns.contains(it)
             })
-        } else {
-            mutableMap.putAll(data)
         }
         config.columnInfo.forEach {
-            if (data.containsKey(it.columnName)) {
+            if (mutableMap.containsKey(it.columnName)) {
                 val value = mutableMap.remove(it.columnName)
                 mutableMap.put(it.aliasName, value)
             }
         }
         indexData = mutableMap
     }
-    return IndexData(indexName, typeName, indexData)
+    val map = indexData.mapValues {
+        when (it.value) {
+            is Date -> (it.value as Date).time
+            else    -> it.value
+        }
+    }
+    map.forEach {
+        println("value: ${it.value}, type: ${it.value?.javaClass}")
+    }
+    return IndexData(indexName, typeName, map)
 }
 
 fun updateData(client: TransportClient, event: UpdateEvent) {
@@ -135,7 +142,7 @@ fun createDeleteEvent(eventData: DeleteRowsEventData) {
     val tableInfo = getTableInfo(eventData.tableId)
     val columnInfos = tableInfo.columnInfos
     for (row in eventData.rows) {
-        EVENT_QUEUE.push(DeleteEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))
+        EVENT_QUEUE.add(DeleteEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))
     }
 }
 
@@ -146,7 +153,7 @@ fun createUpdateEvent(eventData: UpdateRowsEventData) {
     for (row in rows) {
         val before = rowToMap(columnInfos, eventData.includedColumnsBeforeUpdate, row.key)
         val data = rowToMap(columnInfos, eventData.includedColumns, row.value)
-        EVENT_QUEUE.push(UpdateEvent(tableInfo, before, data))
+        EVENT_QUEUE.add(UpdateEvent(tableInfo, before, data))
     }
 }
 
@@ -155,7 +162,7 @@ fun createInsertEvent(eventData: WriteRowsEventData) {
     val tableInfo = getTableInfo(eventData.tableId)
     val columnInfos = tableInfo.columnInfos
     for (row in eventData.rows) {
-        EVENT_QUEUE.push(InsertEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))
+        EVENT_QUEUE.add(InsertEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))
     }
 }
 
