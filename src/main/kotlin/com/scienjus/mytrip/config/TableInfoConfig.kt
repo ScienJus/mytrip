@@ -1,7 +1,7 @@
 package com.scienjus.mytrip.config
 
 /**
- * @author XieEnlong
+ * @author ScienJus
  * @date 2016/3/7.
  */
 data class TableInfoConfig(

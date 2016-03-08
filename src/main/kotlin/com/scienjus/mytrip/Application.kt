@@ -12,6 +12,7 @@ import com.scienjus.mytrip.event.UpdateEvent
 import org.elasticsearch.action.bulk.BulkRequestBuilder
 import org.elasticsearch.client.transport.TransportClient
 import org.elasticsearch.common.transport.InetSocketTransportAddress
+import org.slf4j.LoggerFactory
 import java.io.Serializable
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
@@ -22,20 +23,22 @@ import java.util.concurrent.LinkedBlockingQueue
  */
 private val EVENT_QUEUE = LinkedBlockingQueue<LogEvent>()
 
+private val LOGGER = LoggerFactory.getLogger("MyTrip")
+
 fun main(args: Array<String>) {
     initConfig();
 
     Thread(Runnable {
-        val client = TransportClient()
-                .addTransportAddress(InetSocketTransportAddress(Config.elasticsearch.host, Config.elasticsearch.port))
+        val client = TransportClient().addTransportAddress(InetSocketTransportAddress(Config.elasticsearch.host, Config.elasticsearch.port))
         while (true) {
             val bulk = client.prepareBulk()
             var event = EVENT_QUEUE.poll()
             val size = EVENT_QUEUE.size
             if (size > 0) {
-                println(size)
+                LOGGER.debug("EVENT_QUEUE size: $size")
             }
             while (event != null) {
+                LOGGER.info("new event: $event")
                 when (event) {
                     is InsertEvent -> indexData(bulk, client, event)
                     is UpdateEvent -> updateData(bulk, client, event)
@@ -44,6 +47,7 @@ fun main(args: Array<String>) {
                 event = EVENT_QUEUE.poll()
             }
             if (bulk.numberOfActions() > 0) {
+                LOGGER.debug("bulk size: ${bulk.numberOfActions()}")
                 bulk.execute()
             }
         }
@@ -62,6 +66,7 @@ fun main(args: Array<String>) {
     }
     val binlogPosition = BinlogPositionStore.get()
     if (binlogPosition != null) {
+        LOGGER.info("start with binlog position: $binlogPosition")
         client.binlogFilename = binlogPosition.fileName
         client.binlogPosition = binlogPosition.position
     }
