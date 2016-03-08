@@ -50,7 +50,7 @@ fun main(args: Array<String>) {
     client.registerEventListener { event ->
         val eventData = event.getData<EventData>()
         when (eventData) {
-            is TableMapEventData -> createTableInfo(eventData.tableId, eventData.database, eventData.table)
+            is TableMapEventData -> createTableInfo(eventData)
             is WriteRowsEventData   -> createInsertEvent(eventData)
             is UpdateRowsEventData  -> createUpdateEvent(eventData)
             is DeleteRowsEventData  -> createDeleteEvent(eventData)
@@ -74,9 +74,6 @@ fun initConfig() {
 
 fun deleteData(bulk: BulkRequestBuilder, client: TransportClient, event: DeleteEvent) {
     val tableInfo = event.tableInfo
-    if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
-        return
-    }
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
     bulk.add(client.prepareDelete(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString()))
@@ -84,9 +81,6 @@ fun deleteData(bulk: BulkRequestBuilder, client: TransportClient, event: DeleteE
 
 fun indexData(bulk: BulkRequestBuilder, client: TransportClient, event: InsertEvent) {
     val tableInfo = event.tableInfo
-    if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
-        return
-    }
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
     bulk.add(client.prepareIndex(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
@@ -129,18 +123,23 @@ fun configIndexData(tableInfo: TableInfo, data: Map<String, Any?>): IndexData {
 
 fun updateData(bulk: BulkRequestBuilder, client: TransportClient, event: UpdateEvent) {
     val tableInfo = event.tableInfo
-    if (Config.tables.isNotEmpty() && !Config.tables.contains(tableInfo.databaseName + "." + tableInfo.tableName)) {
-        return
-    }
+
     val indexData = configIndexData(tableInfo, event.data)
     val primaryKeyValue = event.data.get(tableInfo.primaryKey)
     bulk.add(client.prepareUpdate(indexData.indexName, indexData.typeName, primaryKeyValue!!.toString())
             .setDoc(indexData.data))
 }
 
+fun isInclude(databaseName: String, tableName: String): Boolean {
+    if (Config.tables.isNotEmpty() && !Config.tables.contains(databaseName + "." + tableName)) {
+        return false
+    }
+    return true
+}
+
 fun createDeleteEvent(eventData: DeleteRowsEventData) {
+    val tableInfo = getTableInfo(eventData.tableId) ?: return
     val includedColumns = eventData.includedColumns
-    val tableInfo = getTableInfo(eventData.tableId)
     val columnInfos = tableInfo.columnInfos
     for (row in eventData.rows) {
         EVENT_QUEUE.add(DeleteEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))
@@ -148,8 +147,8 @@ fun createDeleteEvent(eventData: DeleteRowsEventData) {
 }
 
 fun createUpdateEvent(eventData: UpdateRowsEventData) {
+    val tableInfo = getTableInfo(eventData.tableId) ?: return
     val rows = eventData.rows;
-    val tableInfo = getTableInfo(eventData.tableId)
     val columnInfos = tableInfo.columnInfos
     for (row in rows) {
         val before = rowToMap(columnInfos, eventData.includedColumnsBeforeUpdate, row.key)
@@ -159,8 +158,8 @@ fun createUpdateEvent(eventData: UpdateRowsEventData) {
 }
 
 fun createInsertEvent(eventData: WriteRowsEventData) {
+    val tableInfo = getTableInfo(eventData.tableId) ?: return
     val includedColumns = eventData.includedColumns
-    val tableInfo = getTableInfo(eventData.tableId)
     val columnInfos = tableInfo.columnInfos
     for (row in eventData.rows) {
         EVENT_QUEUE.add(InsertEvent(tableInfo, rowToMap(columnInfos, includedColumns, row)))

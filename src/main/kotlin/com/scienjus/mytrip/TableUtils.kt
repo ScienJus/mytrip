@@ -1,5 +1,6 @@
 package com.scienjus.mytrip
 
+import com.github.shyiko.mysql.binlog.event.TableMapEventData
 import com.scienjus.mytrip.config.Config
 import java.sql.Connection
 import java.sql.DriverManager
@@ -14,17 +15,20 @@ import java.util.*
 private val CACHE = HashMap<Long, TableInfo>()
 
 
-fun getTableInfo(tableId: Long): TableInfo {
-    return CACHE[tableId] ?: throw RuntimeException("Can not find table info, table id : $tableId")
+fun getTableInfo(tableId: Long): TableInfo? {
+    return CACHE[tableId]
 }
 
-fun createTableInfo(tableId: Long, databaseName: String, tableName: String) {
-    val url = "jdbc:mysql://${Config.mysql.host}:${Config.mysql.port}/$databaseName"
+fun createTableInfo(eventData: TableMapEventData) {
+    if (!isInclude(eventData.database, eventData.table)) {
+        return
+    }
+    val url = "jdbc:mysql://${Config.mysql.host}:${Config.mysql.port}/${eventData.database}"
     try {
         DriverManager.getConnection(url, Config.mysql.username, Config.mysql.password).use { conn ->
-            conn.metaData.getColumns(null, null, tableName, null).use({ resultSet ->
+            conn.metaData.getColumns(null, null, eventData.table, null).use({ resultSet ->
 
-                val primaryKey = getPrimaryKey(conn, tableName)
+                val primaryKey = getPrimaryKey(conn, eventData.table)
 
                 val columnInfos = ArrayList<ColumnInfo>()
 
@@ -32,17 +36,17 @@ fun createTableInfo(tableId: Long, databaseName: String, tableName: String) {
                     val columnName = resultSet.getString("COLUMN_NAME")
                     val columnType = resultSet.getString("TYPE_NAME")
                     if (columnType.equals("enum", ignoreCase = true)) {
-                        val enumValues = getEnumValues(conn, tableName, columnName)
+                        val enumValues = getEnumValues(conn, eventData.table, columnName)
                         columnInfos.add(ColumnInfo(columnName, columnType, enumValues))
                     } else {
                         columnInfos.add(ColumnInfo(columnName, columnType))
                     }
                 }
-                CACHE.put(tableId, TableInfo(databaseName, tableName, primaryKey, columnInfos))
+                CACHE.put(eventData.tableId, TableInfo(eventData.database, eventData.table, primaryKey, columnInfos))
             })
         }
     } catch (e: SQLException) {
-        throw RuntimeException("Get table information failed! table name : $tableName", e)
+        throw RuntimeException("Get table information failed! table name : ${eventData.table}", e)
     }
 
 }
