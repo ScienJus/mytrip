@@ -29,10 +29,13 @@ fun main(args: Array<String>) {
         val client = TransportClient()
                 .addTransportAddress(InetSocketTransportAddress(Config.elasticsearch.host, Config.elasticsearch.port))
         while (true) {
-            val bulk = client.prepareBulk();
+            val bulk = client.prepareBulk()
             var event = EVENT_QUEUE.poll()
+            val size = EVENT_QUEUE.size
+            if (size > 0) {
+                println(size)
+            }
             while (event != null) {
-                println(EVENT_QUEUE.size)
                 when (event) {
                     is InsertEvent -> indexData(bulk, client, event)
                     is UpdateEvent -> updateData(bulk, client, event)
@@ -55,6 +58,12 @@ fun main(args: Array<String>) {
             is UpdateRowsEventData  -> createUpdateEvent(eventData)
             is DeleteRowsEventData  -> createDeleteEvent(eventData)
         }
+        BinlogPositionStore.store(BinlogPosition(client.binlogFilename, client.binlogPosition))
+    }
+    val binlogPosition = BinlogPositionStore.get()
+    if (binlogPosition != null) {
+        client.binlogFilename = binlogPosition.fileName
+        client.binlogPosition = binlogPosition.position
     }
     client.connect()
 }
